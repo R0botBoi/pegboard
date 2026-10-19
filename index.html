@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pegboard</title>
+<meta name="description" content="Click pegs on a grid to wrap a rubber band around them. Make tangent-line forms and export them as SVG or PNG.">
+<meta property="og:title" content="Pegboard">
+<meta property="og:description" content="Click pegs on a grid to wrap a rubber band around them. Make tangent-line forms and export them as SVG or PNG.">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23E6E2DB'/%3E%3Cpath d='M18 10a8 8 0 0 1 8 8l2 14 14-20a8 8 0 1 1 6 13L34 40l14 6a8 8 0 1 1-6 10H18a8 8 0 0 1-8-8V18a8 8 0 0 1 8-8z' fill='%23141414'/%3E%3C/svg%3E">
+<style>
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: drafting table. Artboard is the hero on the left; a narrow instrument panel on the right (stacks below on phones). */
+:root {
+  --bg: #ECE9E4;
+  --panel: #F7F5F2;
+  --ink: #1B1A18;
+  --muted: #6F6A63;
+  --line: #DAD5CD;
+  --chip: #E7E3DC;
+  --accent: #D9432A;
+  --accent-ink: #FFFFFF;
+  --focus: #D9432A;
+  --font-ui: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151413; --panel: #1D1C1A; --ink: #ECE8E1; --muted: #9B958C;
+    --line: #34312D; --chip: #292724; --accent: #FF6547; --accent-ink: #1B0C08; --focus: #FF6547;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151413; --panel: #1D1C1A; --ink: #ECE8E1; --muted: #9B958C;
+  --line: #34312D; --chip: #292724; --accent: #FF6547; --accent-ink: #1B0C08; --focus: #FF6547;
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-ui); font-size: 13px; line-height: 1.4;
+  padding-left: max(0px, env(safe-area-inset-left, 0px));
+  padding-right: max(0px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+*, *::before, *::after { box-sizing: border-box; }
+
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 288px; height: 100%; }
+
+/* Stage */
+.stage { display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  padding-block: 20px 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px; }
+.board-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+#board { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block;
+  box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 12px 40px -18px rgba(0,0,0,.35);
+  touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+#board.t-draw { cursor: crosshair; }
+#board.t-flip, #board.t-erase { cursor: pointer; }
+.status { display: flex; justify-content: space-between; gap: 12px; padding-top: 12px;
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: .02em; }
+.status #msg { color: var(--ink); }
+.status #msg.flash { color: var(--accent); }
+.keys kbd { font-family: var(--font-mono); font-size: 10px; border: 1px solid var(--line);
+  border-radius: 4px; padding: 0 4px; margin: 0 1px; color: var(--muted); }
+
+/* Panel */
+.panel { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto;
+  padding-block: 18px 24px; padding-left: 18px; padding-right: max(18px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 20px; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; }
+.brand h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.brand span { font-family: var(--font-mono); font-size: 10px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+
+section { display: flex; flex-direction: column; gap: 8px; }
+.label { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
+  display: flex; justify-content: space-between; align-items: center; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.hint { font-size: 12px; color: var(--muted); margin: 0; min-height: 2.8em; }
+
+button { font: inherit; color: inherit; background: var(--chip); border: 1px solid transparent; border-radius: var(--r);
+  height: 30px; padding: 0 10px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+button:hover { border-color: var(--line); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+button:disabled { opacity: .4; cursor: default; }
+button.primary { background: var(--ink); color: var(--bg); }
+button.primary:hover { border-color: transparent; opacity: .88; }
+
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--chip); border-radius: var(--r); padding: 3px; gap: 3px; }
+.seg button { height: 26px; background: transparent; border-radius: 6px; }
+.seg button[aria-pressed="true"] { background: var(--panel); box-shadow: 0 1px 2px rgba(0,0,0,.12); font-weight: 500; }
+
+.forms { display: flex; gap: 6px; flex-wrap: wrap; }
+.forms button { width: 30px; padding: 0; font-family: var(--font-mono); font-size: 12px; }
+.forms button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.forms .add { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+
+.actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+
+.field { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+.field > span { font-size: 12px; }
+.stepper { display: inline-flex; align-items: center; background: var(--chip); border-radius: var(--r); }
+.stepper button { width: 28px; height: 28px; padding: 0; background: transparent; font-size: 15px; }
+.stepper output { min-width: 26px; text-align: center; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 132px; accent-color: var(--accent); }
+.val { font-family: var(--font-mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.swatches { display: flex; gap: 8px; }
+.swatch { width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 1px solid rgba(0,0,0,.18); position: relative; overflow: hidden; }
+.swatch i { position: absolute; inset: 9px; border-radius: 50%; }
+.swatch[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+.swatch.custom { background: conic-gradient(#ff4a26, #ffd23f, #3fd27a, #2fb6ff, #6a4bff, #ff4ad2, #ff4a26); }
+.swatch.custom i { background: var(--panel); inset: 8px; }
+.colors { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.colors label { display: flex; align-items: center; gap: 8px; background: var(--chip); border-radius: var(--r); height: 34px; padding: 0 6px 0 10px; font-size: 12px; cursor: pointer; }
+.colors label span { flex: 1; }
+.colors input[type="color"] { width: 26px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; }
+.colors input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+.colors input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 4px; }
+#board.clear-bg { background-color: #fff; background-image:
+  linear-gradient(45deg, #d9d9d9 25%, transparent 25%, transparent 75%, #d9d9d9 75%),
+  linear-gradient(45deg, #d9d9d9 25%, transparent 25%, transparent 75%, #d9d9d9 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.toggles button { height: 26px; font-size: 12px; padding: 0 9px; background: transparent; border-color: var(--line); color: var(--muted); }
+.toggles button[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+
+input[type="text"] { font: inherit; font-family: var(--font-mono); font-size: 12px; color: var(--ink); background: var(--chip);
+  border: 1px solid transparent; border-radius: var(--r); height: 30px; padding: 0 10px; width: 100%; }
+
+.export { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.export .wide { grid-column: 1 / -1; }
+
+@media (max-width: 760px) {
+  html, body { height: auto; }
+  .app { grid-template-columns: minmax(0,1fr); height: auto; }
+  .stage { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  #board { width: 100%; max-height: none; }
+  .panel { border-left: 0; border-top: 1px solid var(--line); overflow: visible;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .keys { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  button { transition: background-color .12s, border-color .12s, opacity .12s; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <main class="stage">
+    <div class="board-wrap">
+      <svg id="board" class="t-draw" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pegboard artboard">
+        <g id="art"></g>
+        <g id="ui" pointer-events="none"></g>
+      </svg>
+    </div>
+    <div class="status">
+      <span id="msg">Click pegs in order. The band closes itself.</span>
+      <span class="keys"><kbd>D</kbd><kbd>F</kbd><kbd>E</kbd> tools · <kbd>R</kbd> random · <kbd>N</kbd> new form · <kbd>⌘Z</kbd> undo</span>
+    </div>
+  </main>
+
+  <aside class="panel">
+    <div class="brand"><h1>Pegboard</h1><span>tangent forms</span></div>
+
+    <section>
+      <div class="label">Forms</div>
+      <div class="forms" id="forms"></div>
+      <div class="actions">
+        <button id="random" title="Random form (R)">Random</button>
+        <button id="undo" title="Undo (⌘Z)">Undo</button>
+        <button id="redo" title="Redo (⇧⌘Z)">Redo</button>
+        <button id="clear" title="Clear this form">Clear</button>
+      </div>
+    </section>
+
+    <section>
+      <div class="label">Tool</div>
+      <div class="seg" id="tools">
+        <button data-tool="draw" aria-pressed="true" title="Draw (D)">Draw</button>
+        <button data-tool="flip" aria-pressed="false" title="Flip (F)">Flip</button>
+        <button data-tool="erase" aria-pressed="false" title="Erase (E)">Erase</button>
+      </div>
+      <p class="hint" id="hint"></p>
+    </section>
+
+    <section>
+      <div class="label">Board</div>
+      <div class="field"><span>Columns</span>
+        <div class="stepper"><button data-step="cols:-1" aria-label="Fewer columns">−</button><output id="cols"></output><button data-step="cols:1" aria-label="More columns">+</button></div>
+      </div>
+      <div class="field"><span>Rows</span>
+        <div class="stepper"><button data-step="rows:-1" aria-label="Fewer rows">−</button><output id="rows"></output><button data-step="rows:1" aria-label="More rows">+</button></div>
+      </div>
+      <div class="field"><span>Peg size <span class="val" id="ratioVal"></span></span>
+        <input type="range" id="ratio" min="0.18" max="0.49" step="0.01" aria-label="Peg size">
+      </div>
+    </section>
+
+    <section>
+      <div class="label">Style</div>
+      <div class="seg" id="modes">
+        <button data-mode="fill" aria-pressed="true">Fill</button>
+        <button data-mode="line" aria-pressed="false">Line</button>
+      </div>
+      <div class="swatches" id="palettes"></div>
+      <div class="colors" id="customColors">
+        <label for="colBg"><span>Background</span><input type="color" id="colBg"></label>
+        <label for="colFg"><span>Shape</span><input type="color" id="colFg"></label>
+      </div>
+      <div class="toggles" id="toggles">
+        <button data-show="pegs">Pegs</button>
+        <button data-show="numbers">Numbers</button>
+        <button data-show="grid">Grid</button>
+        <button data-show="guides">Guides</button>
+        <button data-show="labels">Labels</button>
+        <button data-show="transparent" title="Export without a background">Transparent</button>
+      </div>
+      <input type="text" id="labelText" maxlength="40" aria-label="Corner label" placeholder="Corner label">
+    </section>
+
+    <section>
+      <div class="label">Export</div>
+      <div class="export">
+        <button id="saveSvg" class="primary">Save SVG</button>
+        <button id="savePng">Save PNG</button>
+        <button id="copySvg" class="wide" title="Paste straight into Figma or Illustrator">Copy SVG</button>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<script>
+(() => {
+  const S = 100;            // peg spacing in artboard units
+  const M = S;              // margin around the peg field
+  const TAU = Math.PI * 2;
+  const OVERLAY = "#FF4A26";
+
+  const PALETTES = {
+    paper:     { name: "Paper",     bg: "#E6E2DB", fg: "#141414", minor: "rgba(20,20,20,.07)", major: "rgba(214,72,52,.38)", guide: "#D6482F" },
+    cyan:      { name: "Cyan",      bg: "#9DF4F4", fg: "#080B0B", minor: "rgba(0,70,80,.10)",  major: "rgba(0,70,80,.32)",   guide: "#0B5E66" },
+    olive:     { name: "Olive",     bg: "#B5B25D", fg: "#0D0D09", minor: "rgba(0,0,0,.06)",    major: "rgba(0,0,0,.20)",     guide: "#3B3A12" },
+    ink:       { name: "Ink",       bg: "#121211", fg: "#ECE8E0", minor: "rgba(255,255,255,.05)", major: "rgba(255,255,255,.14)", guide: "#FF6547" },
+    blueprint: { name: "Blueprint", bg: "#2340C4", fg: "#F1F0EA", minor: "rgba(255,255,255,.07)", major: "rgba(255,255,255,.22)", guide: "#9FD2FF" },
+  };
+  const rgba = (hex, a) => {
+    const h = hex.replace("#", ""), n = parseInt(h.length === 3 ? h.replace(/./g, "$&$&") : h, 16);
+    return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+  };
+  function pal() {
+    if (state.palette !== "custom") return PALETTES[state.palette] || PALETTES.paper;
+    const { bg, fg } = state.custom;
+    return { name: "Custom", bg, fg, minor: rgba(fg, 0.07), major: rgba(fg, 0.22), guide: fg };
+  }
+
+  const SAMPLE = {
+    cols: 9, rows: 4, ratio: 0.42, mode: "fill", palette: "paper", label: "series.001",
+    show: { pegs: true, numbers: false, grid: true, guides: false, labels: true, transparent: false },
+    custom: { bg: "#F3EFE8", fg: "#2B44FF" },
+    active: 0,
+    shapes: [
+      { steps: [[0,0],[1,1],[2,0],[3,0],[2,1],[3,2],[2,2],[1,3],[0,3]].map(([c,r]) => ({ c, r, flip: false })) },
+      { steps: [[6,0],[8,0],[7,1],[8,3],[5,3],[6,2],[5,1]].map(([c,r]) => ({ c, r, flip: false })) },
+    ],
+  };
+
+  const KEY = "pegboard.v1";
+  let state = load() || clone(SAMPLE);
+  state.custom = state.custom || clone(SAMPLE.custom);
+  let tool = "draw";
+  let hover = null;      // {c, r}
+  const past = [], future = [];
+
+  const $ = (id) => document.getElementById(id);
+  const board = $("board"), art = $("art"), ui = $("ui");
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function load() {
+    try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.shapes) return s; } catch (e) {}
+    return null;
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+
+  function commit() { past.push(JSON.stringify(state)); if (past.length > 200) past.shift(); future.length = 0; }
+  function undo() { if (!past.length) return; future.push(JSON.stringify(state)); state = JSON.parse(past.pop()); render(); }
+  function redo() { if (!future.length) return; past.push(JSON.stringify(state)); state = JSON.parse(future.pop()); render(); }
+
+  // ---------- geometry ----------
+  const cx = (c) => M + c * S;
+  const cy = (r) => M + r * S;
+  const W = () => 2 * M + (state.cols - 1) * S;
+  const H = () => 2 * M + (state.rows - 1) * S;
+  const inBoard = (st) => st.c >= 0 && st.r >= 0 && st.c < state.cols && st.r < state.rows;
+
+  // Drop steps outside the board and any step that repeats its neighbour.
+  function cleanSteps(steps) {
+    const out = [];
+    for (const s of steps) {
+      if (!inBoard(s)) continue;
+      const last = out[out.length - 1];
+      if (last && last.c === s.c && last.r === s.r) continue;
+      out.push(s);
+    }
+    while (out.length > 1 && out[0].c === out[out.length - 1].c && out[0].r === out[out.length - 1].r) out.pop();
+    return out;
+  }
+
+  // Each step becomes a peg with a side: +1 = band wraps the outside (peg filled), -1 = band wraps inward (peg bitten out).
+  function resolve(steps) {
+    let pts = cleanSteps(steps).map((s, i) => ({ x: cx(s.c), y: cy(s.r), flip: !!s.flip, idx: i }));
+    const n = pts.length;
+    if (n < 3) return pts.map(p => ({ ...p, s: p.flip ? -1 : 1 }));
+    let area = 0;
+    for (let i = 0; i < n; i++) { const a = pts[i], b = pts[(i + 1) % n]; area += a.x * b.y - b.x * a.y; }
+    if (area < 0) pts = pts.slice().reverse();   // normalise to clockwise on screen
+    return pts.map((p, i) => {
+      const a = pts[(i - 1 + n) % n], b = pts[(i + 1) % n];
+      const cross = (p.x - a.x) * (b.y - p.y) - (p.y - a.y) * (b.x - p.x);
+      const auto = cross >= -1e-9 ? 1 : -1;
+      return { ...p, s: p.flip ? -auto : auto };
+    });
+  }
+
+  function tangent(A, B, r) {
+    const dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy);
+    if (d < 1e-9) return null;
+    const ux = dx / d, uy = dy / d, wx = uy, wy = -ux;     // w = left of travel (y-down)
+    const ra = A.s * r, rb = B.s * r;
+    let a = (ra - rb) / d; a = Math.max(-1, Math.min(1, a));
+    const b = Math.sqrt(1 - a * a);
+    const nx = a * ux + b * wx, ny = a * uy + b * wy;
+    return { p: [A.x + ra * nx, A.y + ra * ny], q: [B.x + rb * nx, B.y + rb * ny] };
+  }
+
+  const f = (v) => +v.toFixed(2);
+  function bandPath(pts, r) {
+    const n = pts.length;
+    if (!n) return "";
+    if (n === 1) {
+      const { x, y } = pts[0];
+      return `M${f(x + r)} ${f(y)}A${f(r)} ${f(r)} 0 1 1 ${f(x - r)} ${f(y)}A${f(r)} ${f(r)} 0 1 1 ${f(x + r)} ${f(y)}Z`;
+    }
+    const segs = pts.map((p, i) => tangent(p, pts[(i + 1) % n], r));
+    if (segs.some(s => !s)) return "";
+    let d = `M${f(segs[0].p[0])} ${f(segs[0].p[1])}`;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, P = pts[j], from = segs[i].q, to = segs[j].p;
+      d += `L${f(from[0])} ${f(from[1])}`;
+      const t1 = Math.atan2(from[1] - P.y, from[0] - P.x), t2 = Math.atan2(to[1] - P.y, to[0] - P.x);
+      let delta = P.s > 0 ? t2 - t1 : t1 - t2;
+      delta = ((delta % TAU) + TAU) % TAU;
+      if (delta > 1e-6 && delta < TAU - 1e-6) {
+        d += `A${f(r)} ${f(r)} 0 ${delta > Math.PI ? 1 : 0} ${P.s > 0 ? 1 : 0} ${f(to[0])} ${f(to[1])}`;
+      }
+    }
+    return d + "Z";
+  }
+
+  // ---------- drawing ----------
+  const esc = (t) => String(t).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+
+  function artMarkup() {
+    const P = pal(), w = W(), h = H(), r = state.ratio * S;
+    const out = state.show.transparent ? [] : [`<rect width="${w}" height="${h}" fill="${P.bg}"/>`];
+
+    if (state.show.grid) {
+      let minor = "", major = "";
+      for (let x = 0; x <= w + 0.1; x += S / 4) minor += `M${f(x)} 0V${h}`;
+      for (let y = 0; y <= h + 0.1; y += S / 4) minor += `M0 ${f(y)}H${w}`;
+      for (let x = M - S / 2; x <= w - M + S / 2 + 0.1; x += S) major += `M${f(x)} ${M - S / 2}V${h - M + S / 2}`;
+      for (let y = M - S / 2; y <= h - M + S / 2 + 0.1; y += S) major += `M${M - S / 2} ${f(y)}H${w - M + S / 2}`;
+      out.push(`<path d="${minor}" stroke="${P.minor}" stroke-width="1" fill="none"/>`);
+      out.push(`<path d="${major}" stroke="${P.major}" stroke-width="1.2" fill="none"/>`);
+    }
+
+    if (state.show.pegs) {
+      let pegs = "";
+      for (let c = 0; c < state.cols; c++) for (let rr = 0; rr < state.rows; rr++)
+        pegs += `<circle cx="${cx(c)}" cy="${cy(rr)}" r="${f(r)}"/>`;
+      out.push(`<g fill="none" stroke="${P.fg}" stroke-opacity="${state.mode === "fill" ? 0.75 : 0.35}" stroke-width="${state.mode === "fill" ? 2.2 : 1.4}">${pegs}</g>`);
+    }
+
+    const resolved = state.shapes.map(sh => resolve(sh.steps));
+    resolved.forEach(pts => {
+      const d = bandPath(pts, r);
+      if (!d) return;
+      out.push(state.mode === "fill"
+        ? `<path d="${d}" fill="${P.fg}" fill-rule="nonzero"/>`
+        : `<path d="${d}" fill="none" stroke="${P.fg}" stroke-width="3" stroke-linejoin="round"/>`);
+    });
+
+    if (state.show.guides) {
+      resolved.forEach(pts => {
+        if (pts.length < 2) return;
+        const poly = pts.map(p => `${p.x},${p.y}`).join(" ");
+        out.push(`<polygon points="${poly}" fill="none" stroke="${P.guide}" stroke-width="1.4" stroke-dasharray="6 6" opacity=".9"/>`);
+        out.push(pts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3.2" fill="${P.guide}"/>`).join(""));
+      });
+    }
+
+    if (state.show.numbers) {
+      const fs = S * 0.15;
+      state.shapes.forEach((sh, si) => {
+        const steps = cleanSteps(sh.steps), pts = resolved[si];
+        const sideAt = {};
+        pts.forEach(p => { const st = steps[p.idx]; sideAt[st.c + "," + st.r] = p.s; });
+        const groups = {};
+        steps.forEach((st, i) => { const k = st.c + "," + st.r; (groups[k] = groups[k] || []).push(i + 1); });
+        for (const k in groups) {
+          const [c, rr] = k.split(",").map(Number);
+          const inside = state.mode === "fill" && sideAt[k] > 0;
+          out.push(`<text x="${cx(c)}" y="${cy(rr)}" font-size="${fs}" text-anchor="middle" dominant-baseline="central" font-family="Geist Mono, ui-monospace, Menlo, monospace" fill="${inside ? P.bg : P.fg}" fill-opacity="${inside ? 0.9 : 0.6}">${groups[k].join("·")}</text>`);
+        }
+      });
+    }
+
+    if (state.show.labels) {
+      const used = state.shapes.reduce((a, sh) => a + cleanSteps(sh.steps).length, 0);
+      const fs = S * 0.16, pad = S * 0.32;
+      const t = (x, y, anchor, base, txt) => `<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" dominant-baseline="${base}" font-size="${fs}" font-family="Geist Mono, ui-monospace, Menlo, monospace" letter-spacing="1" fill="${P.fg}" fill-opacity=".8">${esc(txt)}</text>`;
+      out.push(t(pad, pad, "start", "hanging", state.label || ""));
+      out.push(t(w - pad, pad, "end", "hanging", String(used).padStart(4, "0")));
+      out.push(t(pad, h - pad, "start", "alphabetic", `${state.cols}×${state.rows}`));
+      out.push(t(w - pad, h - pad, "end", "alphabetic", String(state.shapes.length).padStart(2, "0")));
+    }
+    return out.join("");
+  }
+
+  function svgString() {
+    const w = W(), h = H();
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${w * 4}" height="${h * 4}" viewBox="0 0 ${w} ${h}">${artMarkup()}</svg>`;
+  }
+
+  // Result of applying the current tool at a peg, without committing it.
+  function applyTool(steps, peg) {
+    const s = cleanSteps(steps);
+    const has = s.some(t => t.c === peg.c && t.r === peg.r);
+    if (tool === "draw") {
+      const last = s[s.length - 1], first = s[0];
+      if (last && last.c === peg.c && last.r === peg.r) return { steps: null, why: "That peg is already the last one." };
+      if (s.length > 1 && first.c === peg.c && first.r === peg.r) return { steps: null, why: "The band closes on its own." };
+      return { steps: [...s, { c: peg.c, r: peg.r, flip: false }] };
+    }
+    if (!has) return { steps: null, why: "That peg isn’t in this form." };
+    if (tool === "flip") return { steps: s.map(t => (t.c === peg.c && t.r === peg.r ? { ...t, flip: !t.flip } : t)) };
+    let k = -1; s.forEach((t, i) => { if (t.c === peg.c && t.r === peg.r) k = i; });
+    return { steps: s.filter((_, i) => i !== k) };
+  }
+
+  function uiMarkup() {
+    const sh = state.shapes[state.active];
+    if (!sh) return "";
+    const r = state.ratio * S, out = [];
+    const steps = cleanSteps(sh.steps);
+    steps.forEach((st, i) => {
+      const last = i === steps.length - 1;
+      out.push(`<circle cx="${cx(st.c)}" cy="${cy(st.r)}" r="${f(r + 5)}" fill="none" stroke="${OVERLAY}" stroke-width="${last ? 2.2 : 1.2}" vector-effect="non-scaling-stroke" ${last ? "" : 'stroke-dasharray="3 4"'}/>`);
+    });
+    if (hover) {
+      const res = applyTool(sh.steps, hover);
+      out.push(`<circle cx="${cx(hover.c)}" cy="${cy(hover.r)}" r="${f(r + 5)}" fill="${OVERLAY}" fill-opacity=".12" stroke="${OVERLAY}" stroke-width="2" vector-effect="non-scaling-stroke"/>`);
+      if (res.steps) {
+        const d = bandPath(resolve(res.steps), r);
+        if (d) out.push(`<path d="${d}" fill="none" stroke="${OVERLAY}" stroke-width="2" stroke-dasharray="7 5" vector-effect="non-scaling-stroke"/>`);
+      }
+    }
+    return out.join("");
+  }
+
+  // ---------- panel ----------
+  const HINTS = {
+    draw: "Click pegs in order. The band closes itself and decides which side to wrap.",
+    flip: "Click a peg in this form to wrap it from the other side.",
+    erase: "Click a peg to take it out of this form.",
+  };
+
+  function renderPanel() {
+    $("forms").innerHTML = state.shapes.map((_, i) =>
+      `<button data-form="${i}" aria-pressed="${i === state.active}" aria-label="Form ${i + 1}">${i + 1}</button>`).join("") +
+      `<button class="add" id="addForm" title="New form (N)" aria-label="New form">+</button>`;
+    document.querySelectorAll("#tools button").forEach(b => b.setAttribute("aria-pressed", b.dataset.tool === tool));
+    $("hint").textContent = HINTS[tool];
+    board.setAttribute("class", "t-" + tool + (state.show.transparent ? " clear-bg" : ""));
+    $("cols").textContent = state.cols; $("rows").textContent = state.rows;
+    $("ratio").value = state.ratio; $("ratioVal").textContent = Math.round(state.ratio * 200) + "%";
+    document.querySelectorAll("#modes button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === state.mode));
+    $("palettes").innerHTML = Object.entries(PALETTES).map(([k, p]) =>
+      `<button class="swatch" data-pal="${k}" aria-pressed="${k === state.palette}" title="${p.name}" aria-label="${p.name} palette" style="background:${p.bg}"><i style="background:${p.fg}"></i></button>`).join("") +
+      `<button class="swatch custom" data-pal="custom" aria-pressed="${state.palette === "custom"}" title="Custom colors" aria-label="Custom colors"><i></i></button>`;
+    $("customColors").hidden = state.palette !== "custom";
+    if (document.activeElement !== $("colBg")) $("colBg").value = state.custom.bg;
+    if (document.activeElement !== $("colFg")) $("colFg").value = state.custom.fg;
+    document.querySelectorAll("#toggles button").forEach(b => b.setAttribute("aria-pressed", !!state.show[b.dataset.show]));
+    $("labelText").hidden = !state.show.labels;
+    if (document.activeElement !== $("labelText")) $("labelText").value = state.label || "";
+    $("undo").disabled = !past.length; $("redo").disabled = !future.length;
+  }
+
+  let msgTimer = null;
+  function status(text, flash) {
+    const el = $("msg");
+    el.textContent = text; el.classList.toggle("flash", !!flash);
+    clearTimeout(msgTimer);
+    if (flash) msgTimer = setTimeout(() => { el.classList.remove("flash"); defaultStatus(); }, 2200);
+  }
+  function defaultStatus() {
+    const n = cleanSteps((state.shapes[state.active] || { steps: [] }).steps).length;
+    $("msg").textContent = `Form ${state.active + 1} · ${n} ${n === 1 ? "peg" : "pegs"}` + (n === 0 ? " · click a peg to start" : "");
+  }
+
+  function render() {
+    state.active = Math.max(0, Math.min(state.active, state.shapes.length - 1));
+    const w = W(), h = H();
+    board.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    board.setAttribute("width", w); board.setAttribute("height", h);
+    art.innerHTML = artMarkup();
+    ui.innerHTML = uiMarkup();
+    renderPanel();
+    if (!$("msg").classList.contains("flash")) defaultStatus();
+    save();
+  }
+  const renderUI = () => { ui.innerHTML = uiMarkup(); };
+
+  // ---------- interaction ----------
+  function pegAt(evt) {
+    const pt = board.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY;
+    const ctm = board.getScreenCTM(); if (!ctm) return null;
+    const p = pt.matrixTransform(ctm.inverse());
+    const c = Math.round((p.x - M) / S), r = Math.round((p.y - M) / S);
+    if (c < 0 || r < 0 || c >= state.cols || r >= state.rows) return null;
+    if (Math.hypot(p.x - cx(c), p.y - cy(r)) > S * 0.5) return null;
+    return { c, r };
+  }
+
+  board.addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse") return;
+    const p = pegAt(e);
+    if ((p && hover && p.c === hover.c && p.r === hover.r) || (!p && !hover)) return;
+    hover = p; renderUI();
+  });
+  board.addEventListener("pointerleave", () => { hover = null; renderUI(); });
+  board.addEventListener("click", (e) => {
+    const p = pegAt(e); if (!p) return;
+    if (!state.shapes.length) state.shapes.push({ steps: [] });
+    const sh = state.shapes[state.active];
+    const res = applyTool(sh.steps, p);
+    if (!res.steps) { status(res.why, true); return; }
+    commit(); sh.steps = res.steps; render();
+  });
+
+  function randomForm() {
+    const ww = Math.min(state.cols, 4), hh = Math.min(state.rows, 4);
+    const ox = Math.floor(Math.random() * (state.cols - ww + 1)), oy = Math.floor(Math.random() * (state.rows - hh + 1));
+    const cells = [];
+    for (let c = 0; c < ww; c++) for (let r = 0; r < hh; r++) cells.push({ c: ox + c, r: oy + r });
+    for (let i = cells.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [cells[i], cells[j]] = [cells[j], cells[i]]; }
+    const k = Math.min(cells.length, 4 + Math.floor(Math.random() * 6));
+    const pick = cells.slice(0, k);
+    if (pick.length < 3) return pick;
+    // nearest-neighbour tour, then 2-opt so the band never crosses itself
+    const tour = [pick.shift()];
+    while (pick.length) {
+      const l = tour[tour.length - 1]; let bi = 0, bd = Infinity;
+      pick.forEach((p, i) => { const d = Math.hypot(p.c - l.c, p.r - l.r) + Math.random() * 0.01; if (d < bd) { bd = d; bi = i; } });
+      tour.push(pick.splice(bi, 1)[0]);
+    }
+    const dist = (a, b) => Math.hypot(a.c - b.c, a.r - b.r);
+    let improved = true, guard = 0;
+    while (improved && guard++ < 200) {
+      improved = false;
+      for (let i = 0; i < tour.length - 1; i++) for (let j = i + 2; j < tour.length; j++) {
+        const a = tour[i], b = tour[i + 1], c = tour[j], d = tour[(j + 1) % tour.length];
+        if (d === a) continue;
+        if (dist(a, c) + dist(b, d) < dist(a, b) + dist(c, d) - 1e-9) {
+          tour.splice(i + 1, j - i, ...tour.slice(i + 1, j + 1).reverse()); improved = true;
+        }
+      }
+    }
+    return tour.map(p => ({ ...p, flip: false }));
+  }
+
+  function setTool(t) { tool = t; renderPanel(); renderUI(); }
+  function addForm() { commit(); state.shapes.push({ steps: [] }); state.active = state.shapes.length - 1; render(); }
+
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.form != null) { state.active = +b.dataset.form; render(); return; }
+    if (b.id === "addForm") return addForm();
+    if (b.dataset.tool) return setTool(b.dataset.tool);
+    if (b.dataset.mode) { if (state.mode !== b.dataset.mode) { commit(); state.mode = b.dataset.mode; render(); } return; }
+    if (b.dataset.pal) { if (state.palette !== b.dataset.pal) { commit(); state.palette = b.dataset.pal; render(); } return; }
+    if (b.dataset.show) { commit(); state.show[b.dataset.show] = !state.show[b.dataset.show]; render(); return; }
+    if (b.dataset.step) {
+      const [k, d] = b.dataset.step.split(":"); const v = Math.max(1, Math.min(16, state[k] + +d));
+      if (v !== state[k]) { commit(); state[k] = v; render(); } return;
+    }
+    switch (b.id) {
+      case "random": commit(); if (!state.shapes.length) state.shapes.push({ steps: [] }); state.shapes[state.active].steps = randomForm(); render(); break;
+      case "undo": undo(); break;
+      case "redo": redo(); break;
+      case "clear": {
+        commit();
+        if (!cleanSteps(state.shapes[state.active].steps).length && state.shapes.length > 1) { state.shapes.splice(state.active, 1); state.active = Math.max(0, state.active - 1); status("Form removed.", true); }
+        else { state.shapes[state.active].steps = []; status("Form cleared. Click Clear again to remove it.", state.shapes.length > 1); }
+        render(); break;
+      }
+      case "saveSvg": saveFile("svg"); break;
+      case "savePng": saveFile("png"); break;
+      case "copySvg": copySvg(); break;
+    }
+  });
+
+  let sliding = false;
+  $("ratio").addEventListener("input", (e) => { if (!sliding) { commit(); sliding = true; } state.ratio = +e.target.value; render(); });
+  $("ratio").addEventListener("change", () => { sliding = false; });
+  let picking = false;
+  for (const [id, key] of [["colBg", "bg"], ["colFg", "fg"]]) {
+    $(id).addEventListener("input", (e) => { if (!picking) { commit(); picking = true; } state.palette = "custom"; state.custom[key] = e.target.value; render(); });
+    $(id).addEventListener("change", () => { picking = false; });
+  }
+  let typing = false;
+  $("labelText").addEventListener("input", (e) => { if (!typing) { commit(); typing = true; } state.label = e.target.value; render(); });
+  $("labelText").addEventListener("blur", () => { typing = false; });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.target.matches("input")) return;
+    const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
+    if (mod && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+    if (mod && k === "y") { e.preventDefault(); redo(); return; }
+    if (mod || e.altKey) return;
+    if (k === "d") setTool("draw");
+    else if (k === "f") setTool("flip");
+    else if (k === "e") setTool("erase");
+    else if (k === "n") addForm();
+    else if (k === "r") $("random").click();
+    else if (k === "backspace" || k === "delete") {
+      const sh = state.shapes[state.active]; const s = cleanSteps(sh.steps);
+      if (s.length) { commit(); sh.steps = s.slice(0, -1); render(); }
+    } else if (/^[1-9]$/.test(k) && +k <= state.shapes.length) { state.active = +k - 1; render(); }
+  });
+
+  // ---------- export ----------
+  let downloads = null;
+  const stamp = () => (state.label || "pegboard").replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, "") || "pegboard";
+
+  async function pngBlob() {
+    const svg = svgString(), w = W(), h = H(), scale = Math.max(1, 3000 / Math.max(w, h));
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    try {
+      const img = new Image();
+      await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; img.src = url; });
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(w * scale); cv.height = Math.round(h * scale);
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+      return await new Promise(ok => cv.toBlob(ok, "image/png"));
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  async function saveFile(kind) {
+    try {
+      const data = kind === "svg" ? svgString() : await pngBlob();
+      if (!downloads) {
+        const blob = typeof data === "string" ? new Blob([data], { type: "image/svg+xml" }) : data;
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob); a.download = `${stamp()}.${kind}`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        status(`Saved ${stamp()}.${kind}`, true);
+        return;
+      }
+      await downloads.save({ filename: `${stamp()}.${kind}`, data });
+      status(`Saved ${stamp()}.${kind}`, true);
+    } catch (err) {
+      const code = err && err.code;
+      if (code === "declined") status("Save cancelled.", true);
+      else if (code === "rate_limited") status("A save prompt is already open.", true);
+      else status("Couldn’t save the file here. Use Copy SVG instead.", true);
+    }
+  }
+
+  function copySvg() {
+    const svg = svgString();
+    const done = () => status("SVG copied. Paste it into Figma or Illustrator.", true);
+    try {
+      navigator.clipboard.writeText(svg).then(done, () => status("Copy was blocked here. Use Save SVG instead.", true));
+    } catch (e) { status("Copy was blocked here. Use Save SVG instead.", true); }
+  }
+
+  render();
+
+  (async () => {
+    try { downloads = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch (e) { downloads = null; }
+  })();
+})();
+</script>
+
+</body>
+</html>
