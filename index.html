@@ -86,7 +86,7 @@ section { display: flex; flex-direction: column; gap: 8px; }
 .label { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
   display: flex; justify-content: space-between; align-items: center; }
 .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.hint { font-size: 12px; color: var(--muted); margin: 0; min-height: 2.8em; }
+.hint { font-size: 12px; color: var(--muted); margin: 0; min-height: 4.2em; }
 
 button { font: inherit; color: inherit; background: var(--chip); border: 1px solid transparent; border-radius: var(--r);
   height: 30px; padding: 0 10px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
@@ -282,6 +282,7 @@ input[type="text"] { font: inherit; font-family: var(--font-mono); font-size: 12
   state.custom = state.custom || clone(SAMPLE.custom);
   let tool = "draw";
   let hover = null;      // {c, r}
+  let drag = null;       // {id, from, to, moved} while a form peg is dragged with the draw tool
   const past = [], future = [];
 
   const $ = (id) => document.getElementById(id);
@@ -460,20 +461,27 @@ input[type="text"] { font: inherit; font-family: var(--font-mono); font-size: 12
     return { steps: s.filter((_, i) => i !== k) };
   }
 
+  const same = (a, b) => !!a && !!b && a.c === b.c && a.r === b.r;
+  const inForm = (peg) => { const sh = state.shapes[state.active]; return !!sh && cleanSteps(sh.steps).some(t => same(t, peg)); };
+  // Every visit to `from` moves to `to`, keeping its place in the order and its flip.
+  const moveSteps = (steps, from, to) => cleanSteps(steps).map(t => (same(t, from) ? { ...t, c: to.c, r: to.r } : t));
+
   function uiMarkup() {
     const sh = state.shapes[state.active];
     if (!sh) return "";
     const r = state.ratio * S, out = [];
-    const steps = cleanSteps(sh.steps);
+    const moving = drag && drag.moved;
+    const steps = moving ? moveSteps(sh.steps, drag.from, drag.to) : cleanSteps(sh.steps);
     steps.forEach((st, i) => {
       const last = i === steps.length - 1;
       out.push(`<circle cx="${cx(st.c)}" cy="${cy(st.r)}" r="${f(r + 5)}" fill="none" stroke="${OVERLAY}" stroke-width="${last ? 2.2 : 1.2}" vector-effect="non-scaling-stroke" ${last ? "" : 'stroke-dasharray="3 4"'}/>`);
     });
-    if (hover) {
-      const res = applyTool(sh.steps, hover);
-      out.push(`<circle cx="${cx(hover.c)}" cy="${cy(hover.r)}" r="${f(r + 5)}" fill="${OVERLAY}" fill-opacity=".12" stroke="${OVERLAY}" stroke-width="2" vector-effect="non-scaling-stroke"/>`);
-      if (res.steps) {
-        const d = bandPath(resolve(res.steps), r);
+    const spot = moving ? drag.to : hover;
+    if (spot) {
+      const next = moving ? steps : applyTool(sh.steps, spot).steps;
+      out.push(`<circle cx="${cx(spot.c)}" cy="${cy(spot.r)}" r="${f(r + 5)}" fill="${OVERLAY}" fill-opacity=".12" stroke="${OVERLAY}" stroke-width="2" vector-effect="non-scaling-stroke"/>`);
+      if (next) {
+        const d = bandPath(resolve(next), r);
         if (d) out.push(`<path d="${d}" fill="none" stroke="${OVERLAY}" stroke-width="2" stroke-dasharray="7 5" vector-effect="non-scaling-stroke"/>`);
       }
     }
@@ -482,7 +490,7 @@ input[type="text"] { font: inherit; font-family: var(--font-mono); font-size: 12
 
   // ---------- panel ----------
   const HINTS = {
-    draw: "Click pegs in order. The band closes itself and decides which side to wrap.",
+    draw: "Click pegs in order. Drag a peg to move it. Double-click a peg to add the next one after it.",
     flip: "Click a peg in this form to wrap it from the other side.",
     erase: "Click a peg to take it out of this form.",
   };
@@ -527,12 +535,15 @@ input[type="text"] { font: inherit; font-family: var(--font-mono); font-size: 12
     board.setAttribute("viewBox", `0 0 ${w} ${h}`);
     board.setAttribute("width", w); board.setAttribute("height", h);
     art.innerHTML = artMarkup();
-    ui.innerHTML = uiMarkup();
+    renderUI();
     renderPanel();
     if (!$("msg").classList.contains("flash")) defaultStatus();
     save();
   }
-  const renderUI = () => { ui.innerHTML = uiMarkup(); };
+  const renderUI = () => {
+    ui.innerHTML = uiMarkup();
+    board.style.cursor = drag ? "grabbing" : tool === "draw" && hover && inForm(hover) ? "grab" : "";
+  };
 
   // ---------- interaction ----------
   function pegAt(evt) {
@@ -545,20 +556,79 @@ input[type="text"] { font: inherit; font-family: var(--font-mono); font-size: 12
     return { c, r };
   }
 
-  board.addEventListener("pointermove", (e) => {
-    if (e.pointerType !== "mouse") return;
-    const p = pegAt(e);
-    if ((p && hover && p.c === hover.c && p.r === hover.r) || (!p && !hover)) return;
-    hover = p; renderUI();
-  });
-  board.addEventListener("pointerleave", () => { hover = null; renderUI(); });
-  board.addEventListener("click", (e) => {
-    const p = pegAt(e); if (!p) return;
+  // What a plain click does with the current tool.
+  function placeAt(p) {
     if (!state.shapes.length) state.shapes.push({ steps: [] });
     const sh = state.shapes[state.active];
     const res = applyTool(sh.steps, p);
     if (!res.steps) { status(res.why, true); return; }
     commit(); sh.steps = res.steps; render();
+  }
+
+  // Double-click: rotate the loop so this peg comes last, making it the anchor the next peg is added after.
+  // A closed loop looks the same from any starting peg, so the shape doesn't change.
+  function setAnchor(p) {
+    const sh = state.shapes[state.active], s = cleanSteps(sh.steps);
+    const ks = s.map((t, i) => (same(t, p) ? i : -1)).filter(i => i >= 0 && i < s.length - 1);
+    if (!ks.length) return;
+    const k = ks[ks.length - 1];
+    commit(); sh.steps = [...s.slice(k + 1), ...s.slice(0, k + 1)]; render();
+    status("Anchor moved. The next peg goes after this one.", true);
+  }
+
+  // With the draw tool, pressing a peg already in the form is a drag (move it), a click (visit it again)
+  // or half of a double-click (anchor), so its click waits DBL ms to find out which.
+  const DBL = 300;
+  let tap = null, lastUp = null, swallowClick = false;
+  function flushTap() { if (!tap) return; clearTimeout(tap.timer); const p = tap.p; tap = null; placeAt(p); }
+
+  board.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || drag) return;
+    swallowClick = false;
+    const p = pegAt(e);
+    if (tool === "draw" && same(p, lastUp) && performance.now() - lastUp.t < DBL && inForm(p)) {
+      if (tap) { clearTimeout(tap.timer); tap = null; }
+      lastUp = null; swallowClick = true; setAnchor(p); return;
+    }
+    flushTap();
+    if (tool !== "draw" || !p || !inForm(p)) return;
+    drag = { id: e.pointerId, from: p, to: p, moved: false };
+    try { board.setPointerCapture(e.pointerId); } catch (err) {}
+    renderUI();
+  });
+  // Keep a touch that starts on a form peg from scrolling the page, so it can drag.
+  board.addEventListener("touchstart", (e) => { if (drag) e.preventDefault(); }, { passive: false });
+  board.addEventListener("pointermove", (e) => {
+    if (drag) {
+      if (e.pointerId !== drag.id) return;
+      // Leaving the peg makes this a drag, not a click. It can land on an empty peg or back where it started.
+      const p = pegAt(e), moved = drag.moved || !same(p, drag.from);
+      const to = p && (same(p, drag.from) || !inForm(p)) ? p : drag.to;
+      if (moved !== drag.moved || !same(to, drag.to)) { drag.moved = moved; drag.to = to; renderUI(); }
+      return;
+    }
+    if (e.pointerType !== "mouse") return;
+    const p = pegAt(e);
+    if ((p && hover && p.c === hover.c && p.r === hover.r) || (!p && !hover)) return;
+    hover = p; renderUI();
+  });
+  board.addEventListener("pointerup", (e) => {
+    const p = pegAt(e);
+    lastUp = tool === "draw" && p ? { ...p, t: performance.now() } : null;
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag; drag = null; swallowClick = true;
+    hover = e.pointerType === "mouse" ? p : null;
+    if (!d.moved) { tap = { p: d.from, timer: setTimeout(flushTap, DBL) }; renderUI(); return; }
+    lastUp = null;
+    if (same(d.to, d.from)) { renderUI(); return; }
+    const sh = state.shapes[state.active];
+    commit(); sh.steps = moveSteps(sh.steps, d.from, d.to); render();
+  });
+  board.addEventListener("pointercancel", (e) => { if (drag && e.pointerId === drag.id) { drag = null; renderUI(); } });
+  board.addEventListener("pointerleave", () => { hover = null; renderUI(); });
+  board.addEventListener("click", (e) => {
+    if (swallowClick) { swallowClick = false; return; }
+    const p = pegAt(e); if (p) placeAt(p);
   });
 
   function randomForm() {
@@ -592,11 +662,12 @@ input[type="text"] { font: inherit; font-family: var(--font-mono); font-size: 12
     return tour.map(p => ({ ...p, flip: false }));
   }
 
-  function setTool(t) { tool = t; renderPanel(); renderUI(); }
+  function setTool(t) { flushTap(); lastUp = null; tool = t; renderPanel(); renderUI(); }
   function addForm() { commit(); state.shapes.push({ steps: [] }); state.active = state.shapes.length - 1; render(); }
 
   document.addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
+    flushTap();
     if (b.dataset.form != null) { state.active = +b.dataset.form; render(); return; }
     if (b.id === "addForm") return addForm();
     if (b.dataset.tool) return setTool(b.dataset.tool);
@@ -637,6 +708,7 @@ input[type="text"] { font: inherit; font-family: var(--font-mono); font-size: 12
 
   document.addEventListener("keydown", (e) => {
     if (e.target.matches("input")) return;
+    flushTap();
     const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
     if (mod && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (mod && k === "y") { e.preventDefault(); redo(); return; }
